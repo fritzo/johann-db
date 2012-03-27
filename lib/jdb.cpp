@@ -6,7 +6,7 @@
 #include <errno.h>
 
 #define LOG(message) { std::cout << message << std::endl; }
-#define ERROR(message) { LOG("ERROR " << message); /*abort();*/ }
+#define ERROR(message) { LOG("ERROR " << message); abort(); }
 #define ASSERT(condition, message) { if (!(condition)) { ERROR(message); } }
 
 namespace Johann
@@ -63,7 +63,7 @@ struct ObNamePair
   char name[16];
 };
 
-typedef std::pair<uint32_t, float> IntWMass;
+typedef std::pair<uint32_t, double> IntWMass;
 
 const size_t BLOCK_SIZE_BYTES = 256;
 
@@ -131,12 +131,20 @@ Database::Database (std::string filename)
   ASSERT(header.version.num() <= NEWEST_COMPATIBLE_VERSION.num(),
       "jdb file is unreadably new: version = " << header.version);
 
-  // TODO validate header
-
   m_ob_count = header.o_size;
   m_app_count = header.a_size;
   m_comp_count = header.c_size;
   m_join_count = header.j_size;
+  const size_t weight_count = header.w_size;
+  const size_t name_count = header.b_size;
+  ASSERT(m_app_count <= m_ob_count * m_ob_count,
+      "bad app_count: " << m_app_count);
+  ASSERT(m_comp_count <= m_ob_count * m_ob_count,
+      "bad comp_count: " << m_comp_count);
+  ASSERT(m_join_count <= m_ob_count * (m_ob_count + 1) / 2,
+      "bad join_count: " << m_join_count);
+  ASSERT(weight_count <= m_ob_count, "bad weight count: " << weight_count);
+  ASSERT(name_count <= m_ob_count, "bad name count: " << name_count);
 
   LOG(" reading " << m_app_count << " application equations");
   m_app_data = safe_malloc<Eqn>(m_app_count);
@@ -157,45 +165,45 @@ Database::Database (std::string filename)
   validate_equations(m_join_data, m_join_count, m_ob_count);
 
   // WARNING must match Language::load_from_file in johann/src/languages.C
-  const size_t weight_count = header.w_size;
   LOG(" reading probabilistic grammar with " << weight_count << " atoms");
   safe_fseek(file, header.L_data);
   safe_fread(& m_app_prob, file);
   safe_fread(& m_comp_prob, file);
   safe_fread(& m_join_prob, file);
-  float atom_prob = 1.0f - m_app_prob - m_comp_prob - m_join_prob;
+  m_atom_prob = 1.0 - m_app_prob - m_comp_prob - m_join_prob;
   ASSERT(0 < m_app_prob and m_app_prob < 1, "bad app prob: " << m_app_prob);
   ASSERT(0 < m_comp_prob and m_comp_prob < 1, "bad comp prob: " << m_comp_prob);
   ASSERT(0 < m_join_prob and m_join_prob < 1, "bad join prob: " << m_join_prob);
-  ASSERT(0 < atom_prob and atom_prob < 1, "bad atom prob: " << atom_prob);
+  ASSERT(0 < m_atom_prob and m_atom_prob < 1, "bad atom prob: " << m_atom_prob);
   {
     IntWMass * pairs = safe_malloc<IntWMass>(weight_count);
     safe_fread(pairs, file, weight_count);
     for (size_t i = 0; i < weight_count; ++i) {
       IntWMass pair = pairs[i];
       Ob ob = pair.first;
-      m_atom_probs[ob] = atom_prob * pair.second;
-      ASSERT(0 < ob and ob <= m_ob_count, "ob out of range: " << ob);
+      double prob = pair.second;
+      m_atom_probs[ob] = prob;
+      ASSERT(0 < prob and prob <= 1, "bad prob: " << prob);
+      ASSERT(0 < ob and ob <= m_ob_count, "bad ob: " << ob);
     }
     free(pairs);
   }
 
   // WARNING must match Brain::load(filename) in johann/src/brain.C
-  const size_t basis_count = header.b_size;
-  LOG(" reading names of " << basis_count << " obs");
+  LOG(" reading names of " << name_count << " obs");
   safe_fseek(file, header.b_data);
   // WARNING must match CombinatoryStructure::load_from_file(filename,b_size)
   {
-    ObNamePair * pairs = safe_malloc<ObNamePair>(basis_count);
-    safe_fread(pairs, file, basis_count);
-    for (size_t i = 0; i < basis_count; ++i) {
+    ObNamePair * pairs = safe_malloc<ObNamePair>(name_count);
+    safe_fread(pairs, file, name_count);
+    for (size_t i = 0; i < name_count; ++i) {
       Ob ob = pairs[i].ob;
       m_name_to_ob[pairs[i].name] = ob;
       ASSERT(0 < ob and ob <= m_ob_count, "ob out of range: " << ob);
     }
     free(pairs);
   }
-  ASSERT(m_name_to_ob.size() == basis_count, "duplicated names");
+  ASSERT(m_name_to_ob.size() == name_count, "duplicated names");
 
   safe_fclose(file);
 

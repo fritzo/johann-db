@@ -73,8 +73,6 @@ void jdb_to_csv (string infile, string outstem)
       file << '\n' << i->second << ',' << i->first;
     }
   }
-
-  LOG("TODO write remaining structure");
 }
 
 int main (int argc, char ** argv)

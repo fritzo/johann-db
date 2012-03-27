@@ -28,11 +28,12 @@ class Database
   Eqn * m_comp_data;
   Eqn * m_join_data;
 
-  float m_app_prob;
-  float m_comp_prob;
-  float m_join_prob;
+  double m_app_prob;
+  double m_comp_prob;
+  double m_join_prob;
+  double m_atom_prob;
 public:
-  typedef std::map<Ob, float> AtomProbs;
+  typedef std::map<Ob, double> AtomProbs;
 private:
   AtomProbs m_atom_probs;
 
@@ -61,11 +62,12 @@ public:
   const Eqn * comps () const { return m_comp_data; }
   const Eqn * joins () const { return m_join_data; }
 
-  float app_prob () const { return m_app_prob; }
-  float comp_prob () const { return m_comp_prob; }
-  float join_prob () const { return m_join_prob; }
+  double app_prob () const { return m_app_prob; }
+  double comp_prob () const { return m_comp_prob; }
+  double join_prob () const { return m_join_prob; }
+  double atom_prob () const { return m_atom_prob; }
   const AtomProbs & atom_probs () const { return m_atom_probs; }
-  float atom_prob (Ob ob)
+  double atom_prob (Ob ob)
   {
     AtomProbs::iterator i = m_atom_probs.find(ob);
     return i == m_atom_probs.end() ? 0 : i->second;
