@@ -6,7 +6,7 @@
 #include <errno.h>
 
 #define LOG(message) { std::cout << message << std::endl; }
-#define ERROR(message) { LOG("ERROR " << message); abort(); }
+#define ERROR(message) { LOG("ERROR " << message); /*abort();*/ }
 #define ASSERT(condition, message) { if (!(condition)) { ERROR(message); } }
 
 namespace Johann
@@ -19,6 +19,10 @@ struct Version
 {
   uint8_t a,b,c,d;
   uint32_t num () const { return a << 24 | b << 16 | c << 8 | d; }
+  friend std::ostream & operator<< (std::ostream & o, const Version & v)
+  {
+    return o << v.a << '.' << v.b << '.' << v.c << '.' << v.d;
+  }
 };
 const Version OLDEST_COMPATIBLE_VERSION = {0,9,1,0};
 const Version NEWEST_COMPATIBLE_VERSION = {0,9,1,255};
@@ -72,7 +76,7 @@ inline FILE * safe_fopen (std::string filename)
   return file;
 }
 
-inline FILE * safe_fclose (FILE * file)
+inline void safe_fclose (FILE * file)
 {
   int info = fclose(file);
   ASSERT(info == 0, "fclose failed with errno = " << errno);
@@ -80,7 +84,7 @@ inline FILE * safe_fclose (FILE * file)
 
 inline void safe_fseek (FILE * file, size_t block_pos)
 {
-  int info = fseek(file, pos * BLOCK_SIZE_BYTES, SEEK_SET);
+  int info = fseek(file, block_pos * BLOCK_SIZE_BYTES, SEEK_SET);
   ASSERT(info == 0, "fseek failed with errno = " << errno);
 }
 
@@ -94,8 +98,22 @@ inline void safe_fread (T * dest, FILE * file, size_t count = 1)
 template<class T>
 inline T * safe_malloc (size_t count)
 {
-  T * result = malloc(count * sizeof(T));
-  ASSERT(T, "failed to allocate " << count << " items");
+  T * result = static_cast<T *>(malloc(count * sizeof(T)));
+  ASSERT(result, "failed to allocate " << count << " items");
+  return result;
+}
+
+inline void validate_equations (
+    const Eqn * eqns,
+    const size_t eqn_count,
+    const size_t ob_count)
+{
+  for (const Eqn * i = eqns, * end = i + eqn_count; i != end; ++i) {
+    ASSERT(0 < i->lhs and i->lhs <= ob_count, " bad lhs: " << i->lhs);
+    ASSERT(0 < i->rhs and i->rhs <= ob_count, " bad rhs: " << i->rhs);
+    ASSERT(0 < i->result and i->result <= ob_count,
+        " bad result: " << i->result);
+  }
 }
 
 // WARNING must match load(string) in johann/src/meas_lite.C
@@ -106,63 +124,82 @@ Database::Database (std::string filename)
   FILE * file = safe_fopen(filename);
 
   Header header;
-  safe_fread(&Header, file);
+  safe_fread(& header, file);
 
-  TODO validate header
+  ASSERT(OLDEST_COMPATIBLE_VERSION.num() <= header.version.num(),
+      "jdb file is unreadably old: version = " << header.version);
+  ASSERT(header.version.num() <= NEWEST_COMPATIBLE_VERSION.num(),
+      "jdb file is unreadably new: version = " << header.version);
 
-  m_ob_size = header.o_size;
-  m_app_size = header.a_size;
-  m_comp_size = header.c_size;
-  m_join_size = header.j_size;
+  // TODO validate header
 
-  LOG(" loading " << m_app_size << " application equations");
-  m_app_data = safe_malloc<Ob>(m_app_size);
+  m_ob_count = header.o_size;
+  m_app_count = header.a_size;
+  m_comp_count = header.c_size;
+  m_join_count = header.j_size;
+
+  LOG(" reading " << m_app_count << " application equations");
+  m_app_data = safe_malloc<Eqn>(m_app_count);
   safe_fseek(file, header.a_data);
-  safe_fread(m_app_data, file, m_app_size);
+  safe_fread(m_app_data, file, m_app_count);
+  validate_equations(m_app_data, m_app_count, m_ob_count);
 
-  LOG(" loading " << m_comp_size << " composition equations");
-  m_comp_data = safe_malloc<Ob>(m_comp_size);
-  safe_fseek(file, header.a_data);
-  safe_fread(m_comp_data, file, m_comp_size);
+  LOG(" reading " << m_comp_count << " composition equations");
+  m_comp_data = safe_malloc<Eqn>(m_comp_count);
+  safe_fseek(file, header.c_data);
+  safe_fread(m_comp_data, file, m_comp_count);
+  validate_equations(m_comp_data, m_comp_count, m_ob_count);
 
-  LOG(" loading " << m_join_size << " join equations");
-  m_join_data = safe_malloc<Ob>(m_join_size);
-  safe_fseek(file, header.a_data);
-  safe_fread(m_join_data, file, m_join_size);
+  LOG(" reading " << m_join_count << " join equations");
+  m_join_data = safe_malloc<Eqn>(m_join_count);
+  safe_fseek(file, header.j_data);
+  safe_fread(m_join_data, file, m_join_count);
+  validate_equations(m_join_data, m_join_count, m_ob_count);
 
   // WARNING must match Language::load_from_file in johann/src/languages.C
-  LOG(" loading probabilistic grammar with " << header.w_size << " atoms");
+  const size_t weight_count = header.w_size;
+  LOG(" reading probabilistic grammar with " << weight_count << " atoms");
   safe_fseek(file, header.L_data);
   safe_fread(& m_app_prob, file);
   safe_fread(& m_comp_prob, file);
   safe_fread(& m_join_prob, file);
+  float atom_prob = 1.0f - m_app_prob - m_comp_prob - m_join_prob;
+  ASSERT(0 < m_app_prob and m_app_prob < 1, "bad app prob: " << m_app_prob);
+  ASSERT(0 < m_comp_prob and m_comp_prob < 1, "bad comp prob: " << m_comp_prob);
+  ASSERT(0 < m_join_prob and m_join_prob < 1, "bad join prob: " << m_join_prob);
+  ASSERT(0 < atom_prob and atom_prob < 1, "bad atom prob: " << atom_prob);
   {
-    float atom_prob = 1.0f - m_app_prob - m_comp_prob - m_join_prob;
-    IntWMass * pairs = safe_malloc<IntWMass>(header.w_size);
-    safe_fread(pairs, file, header.w_size);
-    for (size_t i = 0; i < header.w_size; ++i) {
+    IntWMass * pairs = safe_malloc<IntWMass>(weight_count);
+    safe_fread(pairs, file, weight_count);
+    for (size_t i = 0; i < weight_count; ++i) {
       IntWMass pair = pairs[i];
-      m_atom_probs[pair.first] = atom_prob * pair.second;
+      Ob ob = pair.first;
+      m_atom_probs[ob] = atom_prob * pair.second;
+      ASSERT(0 < ob and ob <= m_ob_count, "ob out of range: " << ob);
     }
     free(pairs);
   }
 
   // WARNING must match Brain::load(filename) in johann/src/brain.C
-  LOG(" loading names of " << header.b_size << " obs");
+  const size_t basis_count = header.b_size;
+  LOG(" reading names of " << basis_count << " obs");
   safe_fseek(file, header.b_data);
   // WARNING must match CombinatoryStructure::load_from_file(filename,b_size)
   {
-    ObNamePair * pairs = safe_malloc<ObNamePair>(header.b_size);
-    safe_fread(pairs, file, header.b_size);
-    for (size_t i = 0; i < header.b_size; ++i) {
-      m_name_to_ob[pairs[i].name] = pairs[i].ob;
+    ObNamePair * pairs = safe_malloc<ObNamePair>(basis_count);
+    safe_fread(pairs, file, basis_count);
+    for (size_t i = 0; i < basis_count; ++i) {
+      Ob ob = pairs[i].ob;
+      m_name_to_ob[pairs[i].name] = ob;
+      ASSERT(0 < ob and ob <= m_ob_count, "ob out of range: " << ob);
     }
     free(pairs);
   }
-  ASSERT(m_name_to_ob.size() == header.b_size,
-      "duplicated names in loading atoms");
+  ASSERT(m_name_to_ob.size() == basis_count, "duplicated names");
 
   safe_fclose(file);
+
+  LOG(" done loading");
 }
 
 Database::~Database ()
@@ -172,12 +209,12 @@ Database::~Database ()
   free(m_join_data);
 }
 
-Database (const Database &)
+Database::Database (const Database &)
 {
   ERROR("Database copying is not supported");
 }
 
-void Databse::operator= (const Database &)
+void Database::operator= (const Database &)
 {
   ERROR("Database copying is not supported");
 }

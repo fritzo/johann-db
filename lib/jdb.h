@@ -19,10 +19,10 @@ struct Eqn { Ob lhs, rhs, result; };
 
 class Database
 {
-  size_t m_ob_size;
-  size_t m_app_size;
-  size_t m_comp_size;
-  size_t m_join_size;
+  size_t m_ob_count;
+  size_t m_app_count;
+  size_t m_comp_count;
+  size_t m_join_count;
 
   Eqn * m_app_data;
   Eqn * m_comp_data;
@@ -52,10 +52,10 @@ public:
   Database (std::string filename);
   virtual ~Database ();
 
-  size_t ob_size () const { return m_ob_size; }
-  size_t app_size () const { return m_app_size; }
-  size_t comp_size () const { return m_comp_size; }
-  size_t join_size () const { return m_join_size; }
+  size_t ob_count () const { return m_ob_count; }
+  size_t app_count () const { return m_app_count; }
+  size_t comp_count () const { return m_comp_count; }
+  size_t join_count () const { return m_join_count; }
 
   const Eqn * apps () const { return m_app_data; }
   const Eqn * comps () const { return m_comp_data; }
