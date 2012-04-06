@@ -18,11 +18,11 @@ Usage
 
 1. include lib/jdb.h in your C++ code
 
-2. create a Database object
+2. create a Johann::Database object in tour C++ code
 
 3. compile and link lib/jdb.cpp with your C++ target
 
-4. download a database (.jdb file) at http://fritzo.org/johann
+4. download a database (.jdb file) from http://fritzo.org/johann
 
 Examples
 ========

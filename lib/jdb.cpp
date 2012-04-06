@@ -21,7 +21,10 @@ struct Version
   uint32_t num () const { return a << 24 | b << 16 | c << 8 | d; }
   friend std::ostream & operator<< (std::ostream & o, const Version & v)
   {
-    return o << v.a << '.' << v.b << '.' << v.c << '.' << v.d;
+    return o << static_cast<int>(v.a)
+      << '.' << static_cast<int>(v.b)
+      << '.' << static_cast<int>(v.c)
+      << '.' << static_cast<int>(v.d);
   }
 };
 const Version OLDEST_COMPATIBLE_VERSION = {0,9,1,0};
@@ -145,6 +148,7 @@ Database::Database (std::string filename)
       "bad join_count: " << m_join_count);
   ASSERT(weight_count <= m_ob_count, "bad weight count: " << weight_count);
   ASSERT(name_count <= m_ob_count, "bad name count: " << name_count);
+  LOG(" found " << m_ob_count << " obs");
 
   LOG(" reading " << m_app_count << " application equations");
   m_app_data = safe_malloc<Eqn>(m_app_count);
